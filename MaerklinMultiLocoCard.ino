@@ -14,6 +14,10 @@
  * LICENSE file for more details.
  */
 
+ // ToDo:
+ // - save .bin file to card in case that complete card was written. find with std::find search, if loco is already existing and overwrite file in that case
+ // - Menu which checks for folders on card. It can be written Everything, a folder or a single loco 
+
 // Smartcard
 #include "Smartcard.h"
 
@@ -25,18 +29,21 @@
 #include "hardware/i2c.h"
 #include "GFX.hpp"
 
+// Led
+#include "ws2812.pio.h"
+
 void printDirectory(File dir, int numTabs);
 
 // Smartcard
 const uint16_t I2C_MEMORY_SIZE{8192};
 const uint8_t I2C_SLAVE_ADDRESS{0x50};
-#ifdef WAVESHARE_RP2040_ZERO
+//#ifdef WAVESHARE_RP2040_ZERO
 const uint8_t I2C_SLAVE_SDA_PIN{28};
 const uint8_t I2C_SLAVE_SCL_PIN{29};
-#else
-const uint8_t I2C_SLAVE_SDA_PIN{20};
-const uint8_t I2C_SLAVE_SCL_PIN{21};
-#endif
+//#else
+//const uint8_t I2C_SLAVE_SDA_PIN{20};
+//const uint8_t I2C_SLAVE_SCL_PIN{21};
+//#endif
 
 const uint32_t I2C_BAUDRATE{400000};
 const int8_t activationPin{13};
@@ -60,11 +67,11 @@ const uint8_t FLASH_MOSI{11};
 const uint8_t FLASH_MISO{8};
 const uint8_t FLASH_CS{9};
 
-#ifdef WAVESHARE_RP2040_ZERO
+//#ifdef WAVESHARE_RP2040_ZERO
 const uint8_t LED_PIN{16};
-#else
-const uint8_t LED_PIN{25};
-#endif
+//#else
+//const uint8_t LED_PIN{25};
+//#endif
 
 Smartcard *lococard{nullptr};
 
@@ -82,11 +89,11 @@ void setup()
 {
 
   // Open serial communications and wait for port to open:
-  Serial.begin(230000);
-  while (!Serial)
-  {
-    ; // wait for serial port to connect. Needed for native USB port only
-  }
+  Serial.begin(115200);
+
+  // deactivate original i2c slave pins
+  pinMode(14, INPUT);
+  pinMode(15, INPUT);
 
   Serial.println("Initialize Display");
   i2c_init(i2c1, 400000);
@@ -109,8 +116,11 @@ void setup()
   ssd1306->display();
 
   Serial.print("Initializing SD card...");
-
-  if (!SD.begin(4))
+  SPI.setRX(SD_MISO);
+  SPI.setTX(SD_MOSI);
+  SPI.setSCK(SD_CLK);
+  SPI.setCS(SD_CS);
+  if (!SD.begin(SD_CS))
   {
     Serial.println("initialization failed!");
     // use internal memory
@@ -135,8 +145,12 @@ void setup()
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+  // todo get free sm
+  PIO pio = pio0;
+  int sm = 0;
+  uint offset = pio_add_program(pio, &ws2812_program);
+
+  ws2812_program_init(pio, sm, offset, LED_PIN, 800000, true);
 
   ssd1306->clear();
   ssd1306->drawString(0, 0, "Init CardSim");
@@ -170,9 +184,9 @@ void setup()
 
 void loop()
 {
-  digitalWrite(LED_PIN, HIGH);
+  put_pixel(urgb_u32(0x1f, 0, 0));
   sleep_ms(250);
-  digitalWrite(LED_PIN, LOW);
+  put_pixel(urgb_u32(0, 0x1f, 0));
   sleep_ms(250);
 
   if (!digitalRead(BUTTON_PIN))
@@ -268,4 +282,15 @@ void printDirectory(File dir, int numTabs)
     }
     entry.close();
   }
+}
+
+static inline void put_pixel(uint32_t pixel_grb) {
+    pio_sm_put_blocking(pio0, 0, pixel_grb << 8u);
+}
+
+static inline uint32_t urgb_u32(uint8_t r, uint8_t g, uint8_t b) {
+    return
+            ((uint32_t) (r) << 8) |
+            ((uint32_t) (g) << 16) |
+            (uint32_t) (b);
 }
