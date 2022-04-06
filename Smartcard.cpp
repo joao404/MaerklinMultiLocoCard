@@ -17,16 +17,15 @@
 #include "Smartcard.h"
 #include <Arduino.h>
 
-std::vector<Smartcard> Smartcard::m_instances;
+Smartcard* Smartcard::m_instance {nullptr};
 
 Smartcard::Smartcard()
   :m_i2c(nullptr),
    m_address(0),
-   m_activationPin(-1),
    m_state(), 
-   readingInProgress(false),
-   m_memory(nullptr),
-   m_memorySize(0),
+   m_lastReceiveTimeINms(0),
+   m_readingInProgress(false),
+   m_readingFinishedFkt(nullptr),
    m_memoryAddress(0)
 {
   
@@ -34,114 +33,103 @@ Smartcard::Smartcard()
 
 Smartcard::~Smartcard()
 {
-  if(m_memory)
-  {
-    delete m_memory;
-  }
 }
+
+
   
-Smartcard* Smartcard::createInstance(uint16_t size, i2c_inst_t *i2c, uint32_t baud, uint8_t address, uint8_t sda, uint8_t scl, int8_t activationPin)
+Smartcard* Smartcard::createInstance(i2c_inst_t *i2c, uint32_t baud, uint8_t address, uint8_t sda, uint8_t scl, void (*readingFinishedFkt)(void))
 {
-  auto& card = Smartcard::m_instances.emplace_back(Smartcard());
-  card.m_i2c = i2c;
-  card.m_address = address;
-  card.m_activationPin = activationPin;
-  card.m_memory = new uint8_t(size);
-  if(card.m_memory)
+  if(nullptr == m_instance)
   {
-    card.m_memorySize = size;
-    card.m_memoryAddress = 0;
-
-    if(-1 != card.m_activationPin)
+	  m_instance = new Smartcard();
+	  if(nullptr != m_instance)
     {
-      pinMode(card.m_activationPin, OUTPUT);
-      digitalWrite(card.m_activationPin, HIGH);// card is marked as not pluged
+	    m_instance->m_i2c = i2c;
+	    m_instance->m_address = address;
+	    m_instance->m_memoryAddress = 0;
+      m_instance->m_readingFinishedFkt = readingFinishedFkt;
+      gpio_init(sda);
+      gpio_set_function(sda, GPIO_FUNC_I2C);
+      gpio_pull_up(sda);
+
+      gpio_init(scl);
+      gpio_set_function(scl, GPIO_FUNC_I2C);
+      gpio_pull_up(scl);
+
+      i2c_init(m_instance->m_i2c, baud);
+      i2c_slave_init(m_instance->m_i2c, m_instance->m_address, &(Smartcard::interruptHandler));
     }
-
-    gpio_init(sda);
-    gpio_set_function(sda, GPIO_FUNC_I2C);
-    gpio_pull_up(sda);
-
-    gpio_init(scl);
-    gpio_set_function(scl, GPIO_FUNC_I2C);
-    gpio_pull_up(scl);
-
-    i2c_init(card.m_i2c, baud);
-    i2c_slave_init(card.m_i2c, card.m_address, &(Smartcard::interruptHandler));
-    return &card;
   }
-  return nullptr;
+  return m_instance;
 }
-
-
 
 uint8_t* Smartcard::getMemory()
 {
   return m_memory;
 }
 
-void Smartcard::triggerActivation()
+unsigned long Smartcard::getLastReceiveTimeINms()
 {
-  readingInProgress = true;
-  if(-1 != m_activationPin)
-  {
-    digitalWrite(m_activationPin, LOW);// card is pluged
-  }
+  return m_lastReceiveTimeINms;
+}
+
+void Smartcard::setReadingInProgress(bool isInProgress)
+{
+  m_readingInProgress = isInProgress; 
 }
 
 bool Smartcard::isReadingInProgress()
 {
-  return readingInProgress;
+  return m_readingInProgress;
 }
 
 void Smartcard::interruptHandler(i2c_inst_t *i2c, i2c_slave_event_t event)
 {
-  for(int i = 0; i < Smartcard::m_instances.size(); i++)
-  //for (auto card : Smartcard::m_instances)
-  {
-    auto& card = Smartcard::m_instances.at(i);
-    if(i2c == card.m_i2c)
-    {    
+	if(nullptr != m_instance)
+	{
+    if(i2c == m_instance->m_i2c)
+    { 
       switch (event) 
       {
       case I2C_SLAVE_RECEIVE: // master has written some data
-        if (i2cState::WaitingForData == card.m_state) {
+        if (i2cState::WaitingForData == m_instance->m_state) {
             // writes always start with the memory address
-            card.m_memoryAddress = i2c_read_byte(i2c) << 8;
-            card.m_state = i2cState::WaitingForAddress;
-        } else if (i2cState::WaitingForAddress == card.m_state) {
+            m_instance->m_memoryAddress = i2c_read_byte(i2c) << 8;
+            m_instance->m_state = i2cState::WaitingForAddress;
+        } else if (i2cState::WaitingForAddress == m_instance->m_state) {
             // writes always start with the memory address
-            card.m_memoryAddress += i2c_read_byte(i2c);
-            card.m_memoryAddress &= 0x1FFF;
-            card.m_state = i2cState::AddressReceived;
+            m_instance->m_memoryAddress += i2c_read_byte(i2c);
+            m_instance->m_memoryAddress &= 0x1FFF;
+            m_instance->m_state = i2cState::AddressReceived;
         } else {
             // save into memory
-            card.m_memory[card.m_memoryAddress] = i2c_read_byte(i2c);
-            card.m_memoryAddress++;
-            card.m_memoryAddress &= 0x1FFF;
+            m_instance->m_memory[m_instance->m_memoryAddress] = i2c_read_byte(i2c);
+            m_instance->m_memoryAddress++;
+            m_instance->m_memoryAddress &= 0x1FFF;
         }
         break;
       case I2C_SLAVE_REQUEST: // master is requesting data
         // load from memory
-        i2c_write_byte(i2c, card.m_memory[card.m_memoryAddress]);
-        card.m_memoryAddress++;
-        card.m_memoryAddress &= 0x1FFF;
-        if(0 == card.m_memoryAddress)// overflow of address. Indicates complete reading of buffer
+        i2c_write_byte(i2c, m_instance->m_memory[m_instance->m_memoryAddress]);
+        m_instance->m_memoryAddress++;
+        m_instance->m_memoryAddress &= 0x1FFF;
+        if(0 == m_instance->m_memoryAddress)// overflow of address. Indicates complete reading of buffer
         {
-          if(-1 != card.m_activationPin)
+          m_instance->m_readingInProgress = false;
+          if(nullptr != m_instance->m_readingFinishedFkt)
           {
-            digitalWrite(card.m_activationPin, HIGH);// card is not pluged anymore
-            card.readingInProgress = false;
+            m_instance->m_readingFinishedFkt();
           }
         }
         break;
       case I2C_SLAVE_FINISH: // master has signalled Stop / Restart
-        card.m_state = i2cState::WaitingForData;
+        m_instance->m_state = i2cState::WaitingForData;
         break;
       default:
         break;
       }
-      break;
+      m_instance->m_lastReceiveTimeINms = millis();
+      m_instance->m_readingInProgress = true;
     }
   }
 }

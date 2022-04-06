@@ -19,7 +19,6 @@
 #include "i2c_fifo.h"
 #include "i2c_slave.h"
 #include <pico/stdlib.h>
-#include <vector>
 
 class Smartcard
 {
@@ -27,15 +26,17 @@ class Smartcard
 	public:
 	  virtual ~Smartcard();
 
-    static Smartcard* createInstance(uint16_t size, i2c_inst_t *i2c, uint32_t baud, uint8_t address = 0x50, uint8_t sda = PICO_DEFAULT_I2C_SDA_PIN, uint8_t scl = PICO_DEFAULT_I2C_SCL_PIN, int8_t activationPin = -1);
+    static Smartcard* createInstance(i2c_inst_t *i2c, uint32_t baud, uint8_t address = 0x50, uint8_t sda = PICO_DEFAULT_I2C_SDA_PIN, uint8_t scl = PICO_DEFAULT_I2C_SCL_PIN, void (*readingFinishedFkt)(void) = nullptr);
   
-	  static void interruptHandler(i2c_inst_t *i2c, i2c_slave_event_t event);
+	static void interruptHandler(i2c_inst_t *i2c, i2c_slave_event_t event);
 
     uint8_t* getMemory();
 
-    void triggerActivation();
+    void setReadingInProgress(bool isInProgress);
 
     bool isReadingInProgress();
+
+    unsigned long getLastReceiveTimeINms();
 
     typedef enum
     {
@@ -48,17 +49,17 @@ class Smartcard
     // Constructor is private to prevent creation
     Smartcard();
     
-    static std::vector<Smartcard> m_instances;
+    static Smartcard* m_instance;
     
     i2c_inst_t* m_i2c;
     uint8_t m_address;
-    int8_t m_activationPin;
     i2cState m_state; 
 
-    bool readingInProgress;
+    unsigned long m_lastReceiveTimeINms;
+    bool m_readingInProgress;
+    void (*m_readingFinishedFkt)(void);
 
-    uint8_t* m_memory;
-    uint16_t m_memorySize;
+    uint8_t m_memory[8192];
     uint16_t m_memoryAddress;
 
     
