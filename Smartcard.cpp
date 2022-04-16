@@ -68,6 +68,16 @@ uint8_t* Smartcard::getMemory()
   return m_memory;
 }
 
+uint16_t Smartcard::getMemoryAddress()
+{
+  return m_memoryAddress;
+}
+
+void Smartcard::setReadingFinishedAddress(uint16_t address)
+{
+  m_lastMemoryAddress = address;
+}
+
 unsigned long Smartcard::getLastReceiveTimeINms()
 {
   return m_lastReceiveTimeINms;
@@ -113,7 +123,11 @@ void Smartcard::interruptHandler(i2c_inst_t *i2c, i2c_slave_event_t event)
         i2c_write_byte(i2c, m_instance->m_memory[m_instance->m_memoryAddress]);
         m_instance->m_memoryAddress++;
         m_instance->m_memoryAddress &= 0x1FFF;
-        if(0 == m_instance->m_memoryAddress)// overflow of address. Indicates complete reading of buffer
+        m_instance->m_readingInProgress = true;
+        break;
+      case I2C_SLAVE_FINISH: // master has signalled Stop / Restart
+        m_instance->m_state = i2cState::WaitingForData;
+        if((m_instance->m_lastMemoryAddress <= m_instance->m_memoryAddress) && m_instance->m_readingInProgress)// overflow of address. Indicates complete reading of buffer
         {
           m_instance->m_readingInProgress = false;
           if(nullptr != m_instance->m_readingFinishedFkt)
@@ -122,14 +136,10 @@ void Smartcard::interruptHandler(i2c_inst_t *i2c, i2c_slave_event_t event)
           }
         }
         break;
-      case I2C_SLAVE_FINISH: // master has signalled Stop / Restart
-        m_instance->m_state = i2cState::WaitingForData;
-        break;
       default:
         break;
       }
       m_instance->m_lastReceiveTimeINms = millis();
-      m_instance->m_readingInProgress = true;
     }
   }
 }

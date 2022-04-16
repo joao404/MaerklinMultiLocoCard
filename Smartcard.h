@@ -32,6 +32,11 @@ class Smartcard
 
     uint8_t* getMemory();
 
+    uint16_t getMemoryAddress();
+
+    // set address which finishes reading if it is reached
+    void setReadingFinishedAddress(uint16_t address);
+
     void setReadingInProgress(bool isInProgress);
 
     bool isReadingInProgress();
@@ -61,6 +66,7 @@ class Smartcard
 
     uint8_t m_memory[8192];
     uint16_t m_memoryAddress;
+    uint16_t m_lastMemoryAddress;
 
     
 };

@@ -31,9 +31,12 @@
 
 // Led
 #include "ws2812.pio.h"
+#include <array>
 
+void plugCard();
+void unplugCard();
+void writeDataToCardAndPlug(String& fileName);
 void getLocosFromSD(File dir);
-void printDirectory(File dir, int numTabs);
 
 
 // Smartcard
@@ -43,9 +46,7 @@ const uint8_t I2C_SLAVE_SCL_PIN{29};
 const uint32_t I2C_BAUDRATE{400000};
 
 const int8_t cardPin{13};
-#define CARD_NOT_PLUGGED LOW
-#define CARD_PLUGGED HIGH
-#define MESSAGE_TIME_DIFF 200
+unsigned long transmissionTimeout{500};
 
 // Display
 const uint8_t I2C_DISPLAY_SDA_PIN{6};
@@ -67,17 +68,29 @@ const uint8_t FLASH_MISO{8};
 const uint8_t FLASH_CS{9};
 
 const uint8_t LED_PIN{16};
+constexpr uint32_t urgb_u32(uint8_t r, uint8_t g, uint8_t b) {
+    return ((uint32_t) (r) << 8) | ((uint32_t) (g) << 16) | (uint32_t) (b);
+}
+inline void put_pixel(uint32_t pixel_grb);
+uint8_t ledColorIndex {0};
+std::array<uint32_t, 3> ledColors = {urgb_u32(0x10, 0, 0), urgb_u32(0, 0x10, 0), urgb_u32(0, 0, 0x10)};
 
+// Smartcard class which handles data transmission
 Smartcard *lococard{nullptr};
 
+// access to filesystem on sd card
 File root;
 
+// list of files which are transferred
+// only .bin currently supported
 std::vector<String> files;
 
-uint16_t fileIndex{0};
+// index of file which is currently transmitted
+uint16_t fileIndex {0};
 
 bool buttonPressed{false};
 
+// access to ssd1306 display
 GFX* ssd1306{nullptr};
 
 void setup()
@@ -86,14 +99,14 @@ void setup()
   // Open serial communications and wait for port to open:
   Serial.begin(115200);
 
-   while (!Serial)
+  /*
+  while (!Serial)
   {
     ; // wait for serial port to connect. Needed for native USB port only
   }
+  */
 
-  // deactivate original i2c slave pins
-  pinMode(14, INPUT);
-  pinMode(15, INPUT);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
 
   Serial.println("Initialize Display");
   i2c_init(i2c1, 400000);
@@ -136,28 +149,26 @@ void setup()
     // use sd card
     Serial.println("initialization done.");
     root = SD.open("/");
-    
-    printDirectory(root, 0);
     Serial.println("Getting .bin and .cs2 files");
     getLocosFromSD(root);
   }
 
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
-
-  // todo get free sm
+  Serial.print("Init LED");
   PIO pio = pio0;
   int sm = 0;
   uint offset = pio_add_program(pio, &ws2812_program);
-
   ws2812_program_init(pio, sm, offset, LED_PIN, 800000, true);
+
 
   ssd1306->clear();
   ssd1306->drawString(0, 0, "Init CardSim");
   ssd1306->display();
 
   Serial.print("Init Smartcard:");
-  pinMode(cardPin, OUTPUT);
-  digitalWrite(cardPin, CARD_NOT_PLUGGED);
+  // deactivate original i2c slave pins for smartcard
+  pinMode(14, INPUT);
+  pinMode(15, INPUT);
+  unplugCard();
   lococard = Smartcard::createInstance(i2c0, I2C_BAUDRATE, I2C_SLAVE_ADDRESS, I2C_SLAVE_SDA_PIN, I2C_SLAVE_SCL_PIN, &readingFinished);
   if (nullptr == lococard)
   {
@@ -169,54 +180,103 @@ void setup()
   {
     Serial.println("Success");
   }
-
   
-  ssd1306->clear();
   if (files.size() > 0)
   {
-    ssd1306->drawString(0, 0, "0");
-    ssd1306->drawString(0, 10, files.at(0).c_str());
+    writeDataToCardAndPlug(files.at(fileIndex));
   }
   else
   {
+    ssd1306->clear();
     ssd1306->drawString(0, 0, "No Loco");
+    ssd1306->display();
+    plugCard();
   }
-  ssd1306->display();
-  
-  digitalWrite(cardPin, CARD_PLUGGED);
 }
 
 void loop()
 {
-  put_pixel(urgb_u32(0x13, 0, 0));
-  sleep_ms(250);
-  put_pixel(urgb_u32(0, 0x13, 0));
-  sleep_ms(250);
   unsigned long currentTime = millis();
-  if(lococard->isReadingInProgress() && ((MESSAGE_TIME_DIFF + lococard->getLastReceiveTimeINms()) < currentTime))
+  if(lococard->isReadingInProgress() && ((transmissionTimeout + lococard->getLastReceiveTimeINms()) < currentTime))
   {
-    Serial.println("Transmission finished");
+    // Transmission ongoing and timeout reached => increase error counter
+    Serial.printf("Transmissiontimeout with address:%x\n", lococard->getMemoryAddress());
     lococard->setReadingInProgress(false); 
-    fileIndex++;
-    digitalWrite(cardPin, CARD_NOT_PLUGGED);
+    unplugCard();
+    fileIndex++;    
     sleep_ms(100);
-      if (fileIndex < files.size())
-      {
-        File file = SD.open(files.at(fileIndex));
+    if (fileIndex < files.size())
+    {
+      writeDataToCardAndPlug(files.at(fileIndex));
+    }
+    else
+    {
+      ssd1306->clear();
+      ssd1306->drawString(0, 0, "No more loco");
+      ssd1306->display();
+    }
+  }
+}
+
+void readingFinished()
+{
+ Serial.println("Reading finished");
+ unplugCard();
+ fileIndex++;    
+ sleep_ms(100);
+ if (fileIndex < files.size())
+ {
+   writeDataToCardAndPlug(files.at(fileIndex));
+ }
+ else
+ {
+   ssd1306->clear();
+   ssd1306->drawString(0, 0, "No more loco");
+   ssd1306->display();
+ }
+}
+
+void plugCard()
+{
+  pinMode(cardPin, INPUT);
+}
+
+void unplugCard()
+{
+  pinMode(cardPin, OUTPUT);
+  digitalWrite(cardPin, LOW);
+}
+
+inline void put_pixel(uint32_t pixel_grb) {
+    pio_sm_put_blocking(pio0, 0, pixel_grb << 8u);
+}
+
+void writeDataToCardAndPlug(String& fileName)
+{
+   File file = SD.open(fileName);
         if (file)
         {
           if (lococard->getMemory())
           {
-            if (files.at(fileIndex).endsWith(".bin")) //.bin file
+            if (fileName.endsWith(".bin")) //.bin file
             {
               if (file.size() <= 8192)
               {
                 ssd1306->clear();
                 ssd1306->drawString(0, 0, String(fileIndex).c_str());
-                ssd1306->drawString(0, 10, files.at(fileIndex).c_str());
+                ssd1306->drawString(0, 10, fileName.c_str());
                 ssd1306->display();
+                Serial.printf("Next loco:%s\n", fileName.c_str());
+                put_pixel(ledColors[ledColorIndex++]);
+                if(ledColorIndex >= ledColors.size())
+                {
+                  ledColorIndex = 0;
+                }
                 file.read(lococard->getMemory(), file.size());
-                digitalWrite(cardPin, CARD_PLUGGED);
+                uint16_t lastReadingAddress = getLastAddressOfLocoData(lococard->getMemory());
+                Serial.printf("Last reading address:%x\n", lastReadingAddress);
+                lococard->setReadingFinishedAddress(lastReadingAddress);
+                plugCard();
               }
               else
               {
@@ -225,7 +285,7 @@ void loop()
                 Serial.println(file.size());
               }
             }
-            else if (files.at(fileIndex).endsWith(".cs2")) // .cs2 file
+            else if (fileName.endsWith(".cs2")) // .cs2 file
             {
               Serial.print(file.name());
               Serial.println(" with .cs2 not supported");
@@ -238,31 +298,6 @@ void loop()
           }
           file.close();
         }
-      }
-      else
-      {
-        ssd1306->clear();
-        ssd1306->drawString(0, 0, "No more loco");
-        ssd1306->display();
-      }
-  }
-}
-
-void readingFinished()
-{
- Serial.println("Reading finished");
- //digitalWrite(cardPin, CARD_NOT_PLUGGED);
-}
-
-static inline void put_pixel(uint32_t pixel_grb) {
-    pio_sm_put_blocking(pio0, 0, pixel_grb << 8u);
-}
-
-static inline uint32_t urgb_u32(uint8_t r, uint8_t g, uint8_t b) {
-    return
-            ((uint32_t) (r) << 8) |
-            ((uint32_t) (g) << 16) |
-            (uint32_t) (b);
 }
 
 void getLocosFromSD(File dir)
@@ -292,33 +327,68 @@ void getLocosFromSD(File dir)
   }
 }
 
-void printDirectory(File dir, int numTabs)
-{
-  while (true)
-  {
 
-    File entry = dir.openNextFile();
-    if (!entry)
+uint16_t getLastAddressOfLocoData(uint8_t* data)
+{
+
+  if(nullptr == data)
+  {
+    return 0;
+  }
+  uint16_t index = 0;
+
+    uint16_t length = data[0];
+    if (length != 2)
     {
-      // no more files
+      Serial.printf("unknown loco card type - first byte 0x%02x should be 2\n", length);
+      return 0;
+    }
+    uint16_t id = data[1] + (data[2] << 8);
+    switch (id) {
+    case 0x00E5: //PREAMBLE_MFX
+    case 0x00F5: //PREAMBLE_MFX2
+    case 0x0075: //PREAMBLE_MM
+    case 0x0117: //PREAMBLE_MFX_F32
+    case 0x00C5: //PREAMBLE_OTHER
+    break;
+    default:
+      Serial.printf("unknown loco card type 0x%04x\n\n", id);
+      return 0;
+    }
+    uint16_t i = 3;
+    while (i < 8192) {
+  index = data[i++];
+  length = data[i++];
+
+  switch (index) {
+
+  case 0:
+      length = data[i] + (data[i+1] << 8);
+      i += 2;
+      id = data[i++];
+      while ((id != 0) && (id != 255)) {
+    length = data[i++];
+    switch (id) {
+    case 0x05:
+       i += (length + (data[i++] << 8));
+       break;
+    default:
+      i += length;
+        break;
+    }
+    id = data[i++];
+    if (id == 0)
+        id = data[i++];
+      }
+      break;
+  default:
+      i+=length;
+      break;
+  }
+  if (index == 0)
       break;
     }
-    for (uint8_t i = 0; i < numTabs; i++)
-    {
-      Serial.print('\t');
-    }
-    Serial.print(entry.name());
-    if (entry.isDirectory())
-    {
-      Serial.println("/");
-      printDirectory(entry, numTabs + 1);
-    }
-    else
-    {
-      // files have sizes, directories do not
-      Serial.print("\t\t");
-      Serial.println(entry.size(), DEC);
-    }
-    entry.close();
-  }
+    // Serial.printf("i:%x\n", i);
+
+    return i-1;
 }

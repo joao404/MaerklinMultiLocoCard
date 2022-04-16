@@ -6,7 +6,8 @@ Forum discussion can be found at https://www.stummiforum.de/t202512f7-Lokkarten-
 
 ## Function
 Copy binary files to SD card of emulator. Display should show a zero and the name of the first binary file. Insert card into MS2. 
-Number should increase and show file name of current loco, that is being updated. (This is currently not properly working. Manually remove and put back in)
+Number should increase and show file name of current loco, that will be updated. For MS HW2.0 card must be manually plugged and unplugged.
+In case of HW2.1 reading should work automatic. A bug could occur, if two locos with the same address are read.
 
 ## Precondition
 - Install rp2040 delevopment framework as described at https://github.com/earlephilhower/arduino-pico. I currently recommend to use Arduino IDE.
