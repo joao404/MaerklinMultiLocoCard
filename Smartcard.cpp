@@ -116,6 +116,8 @@ void Smartcard::interruptHandler(i2c_inst_t *i2c, i2c_slave_event_t event)
             m_instance->m_memory[m_instance->m_memoryAddress] = i2c_read_byte(i2c);
             m_instance->m_memoryAddress++;
             m_instance->m_memoryAddress &= 0x1FFF;
+            // call callback for handling data
+            
         }
         break;
       case I2C_SLAVE_REQUEST: // master is requesting data
