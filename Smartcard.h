@@ -26,7 +26,7 @@ class Smartcard
 	public:
 	  virtual ~Smartcard();
 
-    static Smartcard* createInstance(i2c_inst_t *i2c, uint32_t baud, uint8_t address = 0x50, uint8_t sda = PICO_DEFAULT_I2C_SDA_PIN, uint8_t scl = PICO_DEFAULT_I2C_SCL_PIN, void (*readingFinishedFkt)(void) = nullptr);
+    static Smartcard* createInstance(i2c_inst_t *i2c, uint32_t baud, uint8_t address = 0x50, uint8_t sda = PICO_DEFAULT_I2C_SDA_PIN, uint8_t scl = PICO_DEFAULT_I2C_SCL_PIN, void (*readingFinishedFkt)(void) = nullptr, void (*writeCallbackFkt)(void) = nullptr);
   
 	static void interruptHandler(i2c_inst_t *i2c, i2c_slave_event_t event);
 
@@ -63,6 +63,8 @@ class Smartcard
     unsigned long m_lastReceiveTimeINms;
     bool m_readingInProgress;
     void (*m_readingFinishedFkt)(void);
+
+    void (*m_writeCallbackFkt)(void);
 
     uint8_t m_memory[8192];
     uint16_t m_memoryAddress;

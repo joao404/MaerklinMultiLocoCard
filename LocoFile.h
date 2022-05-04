@@ -17,7 +17,7 @@
 
 #pragma once
 
- #include "Arduino.h"
+#include "Arduino.h"
 
 class LocoFile
 {
@@ -29,6 +29,6 @@ class LocoFile
     static uint16_t createBinFromCS2(const uint8_t* cs2Data, uint8_t* binData);
 
     // get name of loco from binary data
-    static String getLocoNameFromBin(const uint8_t* binData);
+    static bool getLocoNameFromBin(const uint8_t* data, String& locoName);
 	
 };

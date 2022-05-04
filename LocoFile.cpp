@@ -33,6 +33,7 @@ uint16_t LocoFile::getLastAddressOfLocoData(uint8_t* data)
     }
     uint16_t id = data[1] + (data[2] << 8);
     switch (id) {
+    case 0x00E7: //PREAMBLE_MM2
     case 0x00E5: //PREAMBLE_MFX
     case 0x00F5: //PREAMBLE_MFX2
     case 0x0075: //PREAMBLE_MM
@@ -89,7 +90,74 @@ uint16_t LocoFile::createBinFromCS2(const uint8_t* cs2Data, uint8_t* binData)
   return index;
 }
 
-String LocoFile::getLocoNameFromBin(const uint8_t* binData)
+bool LocoFile::getLocoNameFromBin(const uint8_t* data, String& locoName)
 {
-  return "Testloco";
+  if(nullptr == data)
+  {
+    return false;
+  }
+  uint16_t index = 0;
+
+    uint16_t length = data[0];
+    if (length != 2)
+    {
+      Serial.printf("unknown loco card type - first byte 0x%02x should be 2\n", length);
+      return false;
+    }
+    uint16_t id = data[1] + (data[2] << 8);
+    switch (id) {
+    case 0x00E7: //PREAMBLE_MM2
+    case 0x00E5: //PREAMBLE_MFX
+    case 0x00F5: //PREAMBLE_MFX2
+    case 0x0075: //PREAMBLE_MM
+    case 0x0117: //PREAMBLE_MFX_F32
+    case 0x00C5: //PREAMBLE_OTHER
+    break;
+    default:
+      Serial.printf("unknown loco card type 0x%04x\n\n", id);
+      return false;
+    }
+    uint16_t i = 3;
+    while (i < 8192) {
+  index = data[i++];
+  length = data[i++];
+
+  switch (index) {
+
+  case 0:
+      length = data[i] + (data[i+1] << 8);
+      i += 2;
+      id = data[i++];
+      while ((id != 0) && (id != 255)) {
+    length = data[i++];
+    switch (id) {
+    case 0x05:
+       i += (length + (data[i++] << 8));
+       break;
+    case 0x1e://loconame
+       locoName = "";
+       for(uint16_t index = 0; index < length; index++)
+       {
+        locoName += (char)(data[i + index]);
+       }
+       return true;
+    default:
+      i += length;
+        break;
+    }
+    id = data[i++];
+    if (id == 0)
+        id = data[i++];
+      }
+      break;
+  default:
+      i+=length;
+      break;
+  }
+  if (index == 0)
+      break;
+    }
+    // Serial.printf("i:%x\n", i);
+
+  return false;
 }

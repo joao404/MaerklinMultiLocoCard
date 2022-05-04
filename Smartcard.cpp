@@ -37,7 +37,7 @@ Smartcard::~Smartcard()
 
 
   
-Smartcard* Smartcard::createInstance(i2c_inst_t *i2c, uint32_t baud, uint8_t address, uint8_t sda, uint8_t scl, void (*readingFinishedFkt)(void))
+Smartcard* Smartcard::createInstance(i2c_inst_t *i2c, uint32_t baud, uint8_t address, uint8_t sda, uint8_t scl, void (*readingFinishedFkt)(void), void (*writeCallbackFkt)(void))
 {
   if(nullptr == m_instance)
   {
@@ -48,6 +48,7 @@ Smartcard* Smartcard::createInstance(i2c_inst_t *i2c, uint32_t baud, uint8_t add
 	    m_instance->m_address = address;
 	    m_instance->m_memoryAddress = 0;
       m_instance->m_readingFinishedFkt = readingFinishedFkt;
+      m_instance->m_writeCallbackFkt = writeCallbackFkt;
       gpio_init(sda);
       gpio_set_function(sda, GPIO_FUNC_I2C);
       gpio_pull_up(sda);
@@ -117,7 +118,10 @@ void Smartcard::interruptHandler(i2c_inst_t *i2c, i2c_slave_event_t event)
             m_instance->m_memoryAddress++;
             m_instance->m_memoryAddress &= 0x1FFF;
             // call callback for handling data
-            
+            if(nullptr != m_instance->m_writeCallbackFkt)
+            {
+              m_instance->m_writeCallbackFkt();
+            }
         }
         break;
       case I2C_SLAVE_REQUEST: // master is requesting data

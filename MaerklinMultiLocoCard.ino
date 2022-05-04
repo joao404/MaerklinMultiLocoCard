@@ -36,6 +36,7 @@
 // functions for .bin and .cs2 files
 #include "LocoFile.h"
 
+void writeCallback();
 void plugCard();
 void unplugCard();
 bool writeDataToCardAndPlug(String& fileName);
@@ -91,7 +92,8 @@ std::vector<String> files;
 // index of file which is currently transmitted
 uint16_t fileIndex {0};
 
-bool buttonPressed{false};
+bool writeTriggered{false};
+bool dataWritten{false};
 
 // access to ssd1306 display
 GFX* ssd1306{nullptr};
@@ -174,7 +176,7 @@ void setup()
   pinMode(14, INPUT);
   pinMode(15, INPUT);
   unplugCard();
-  lococard = Smartcard::createInstance(i2c0, I2C_BAUDRATE, I2C_SLAVE_ADDRESS, I2C_SLAVE_SDA_PIN, I2C_SLAVE_SCL_PIN, &readingFinished);
+  lococard = Smartcard::createInstance(i2c0, I2C_BAUDRATE, I2C_SLAVE_ADDRESS, I2C_SLAVE_SDA_PIN, I2C_SLAVE_SCL_PIN, &readingFinished, &writeCallback);
   if (nullptr == lococard)
   {
     Serial.println("Failed");
@@ -204,28 +206,79 @@ void loop()
     sleep_ms(100);
     prepareNextLoco();
   }
-  if((LOW == digitalRead(BUTTON_PIN)) && !buttonPressed)
+  if(writeTriggered && dataWritten && ((transmissionTimeout + lococard->getLastReceiveTimeINms()) < currentTime))
+  {
+    Serial.println("Write finished");
+    String locoName;
+    if(LocoFile::getLocoNameFromBin(lococard->getMemory(), locoName))
+    {
+      Serial.printf("Got loco:%s\n", locoName.c_str());
+      locoName.replace(" ", "_");
+      locoName += ".bin";
+      ssd1306->clear();
+      ssd1306->drawString(0, 0, locoName.c_str());
+      ssd1306->drawString(0, 10, "Schreiben auf SD");
+
+      bool success {false};
+      if(SD.exists(locoName))
+      {
+        SD.remove(locoName);
+      }
+      File file = SD.open(locoName, FILE_WRITE);
+      if (file)
+      {
+        if(8192 == file.write(lococard->getMemory(), 8192))
+        {
+          success = true;
+        }
+        file.close();
+      }
+      ssd1306->drawString(0, 20, success ? "erfolgreich" : "fehlgeschlagen");
+      ssd1306->display();
+    }
+    else
+    {
+    ssd1306->clear();
+    ssd1306->drawString(0, 0, "Kein Lokname");
+    ssd1306->display();
+    }
+    writeTriggered = false;
+    dataWritten = false;
+    
+  }
+  if((LOW == digitalRead(BUTTON_PIN)) && !writeTriggered)
   {
     // if button is pressed, switch to write mode
-    buttonPressed = true;
+    writeTriggered = true;
+    dataWritten = false;
     readingTriggered = false;
     memset(lococard->getMemory(), 0, 8192);
     lococard->setReadingFinishedAddress(8192);
     Serial.println("Writemode activ");
     ssd1306->clear();
-    ssd1306->drawString(0, 0, "Writemode activ");
+    ssd1306->drawString(0, 0, "Bereit zum Schreiben");
     ssd1306->display();
-    
+  }
+}
+
+void writeCallback()
+{
+  if(writeTriggered)
+  {
+    dataWritten = true;
   }
 }
 
 void readingFinished()
 {
- Serial.println("Reading finished");
- readingTriggered = false;
- unplugCard(); 
- sleep_ms(100);
- prepareNextLoco();
+  if(readingTriggered)
+  {
+    Serial.println("Reading finished");
+    readingTriggered = false;
+    unplugCard(); 
+    sleep_ms(100);
+    prepareNextLoco();
+  }
 }
 
 void prepareNextLoco()
@@ -243,7 +296,8 @@ void prepareNextLoco()
     else
     {
       ssd1306->clear();
-      ssd1306->drawString(0, 0, "No more loco");
+      ssd1306->drawString(0, 0, "Alle Lokomotiven");
+      ssd1306->drawString(0, 10, "gelesen");
       ssd1306->display();
       break;
     }
@@ -292,12 +346,18 @@ bool writeDataToCardAndPlug(String& fileName)
 
                 // write current loco to display
                 ssd1306->clear();
-                ssd1306->drawString(0, 0, String(fileIndex).c_str());
+                String fileIndexStr = String(fileIndex);
+                fileIndexStr += " von ";
+                fileIndexStr += files.size();
+                ssd1306->drawString(0, 0, fileIndexStr.c_str());
                 ssd1306->drawString(0, 10, fileName.c_str());
                 uint16_t id = lococard->getMemory()[1] + (lococard->getMemory()[2] << 8);
                 switch (id) {
                   case 0x00E5: //PREAMBLE_MFX
                   ssd1306->drawString(0, 20, "MFX");
+                  break;
+                  case 0x00E7: //PREAMBLE_MM2
+                  ssd1306->drawString(0, 20, "MM2");
                   break;
                   case 0x00F5: //PREAMBLE_MFX2
                   ssd1306->drawString(0, 20, "MFX2");
