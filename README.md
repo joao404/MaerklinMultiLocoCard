@@ -9,6 +9,8 @@ Copy binary files to SD card of emulator. Display should show a one and the name
 Number should increase and show file name of current loco, that will be updated. For MS HW2.0 card must be manually plugged and unplugged.
 In case of HW2.1 reading should work automatic. A bug could occur, if two locos with the same address are read.
 
+To use write mode, press button on emulator before plugging the card. MS will notify read error. Afterwards loco can be chosen and written. To write additional locos, card does not have to be removed.
+
 ## Precondition
 - Install rp2040 delevopment framework as described at https://github.com/earlephilhower/arduino-pico. I currently recommend to use Arduino IDE.
 
