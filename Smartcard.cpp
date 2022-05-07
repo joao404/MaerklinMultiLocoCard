@@ -25,7 +25,8 @@ Smartcard::Smartcard()
    m_state(), 
    m_lastReceiveTimeINms(0),
    m_readingInProgress(false),
-   m_readingFinishedFkt(nullptr),
+   m_readingFinishedCallback(nullptr),
+   m_writeCallback(nullptr),
    m_memoryAddress(0)
 {
   
@@ -37,27 +38,30 @@ Smartcard::~Smartcard()
 
 
   
-Smartcard* Smartcard::createInstance(i2c_inst_t *i2c, uint32_t baud, uint8_t address, uint8_t sda, uint8_t scl, void (*readingFinishedFkt)(void), void (*writeCallbackFkt)(void))
+Smartcard* Smartcard::createInstance(Config& config)
 {
   if(nullptr == m_instance)
   {
 	  m_instance = new Smartcard();
 	  if(nullptr != m_instance)
     {
-	    m_instance->m_i2c = i2c;
-	    m_instance->m_address = address;
+	    m_instance->m_i2c = config.i2c;
+	    m_instance->m_address = config.address;
 	    m_instance->m_memoryAddress = 0;
-      m_instance->m_readingFinishedFkt = readingFinishedFkt;
-      m_instance->m_writeCallbackFkt = writeCallbackFkt;
-      gpio_init(sda);
-      gpio_set_function(sda, GPIO_FUNC_I2C);
-      gpio_pull_up(sda);
+      m_instance->m_readingFinishedCallback = config.readingFinishedCallback;
+      m_instance->m_writeCallback = config.writeCallback;
+      gpio_init(config.sda);
+      gpio_set_function(config.sda, GPIO_FUNC_I2C);
+      gpio_pull_up(config.sda);
 
-      gpio_init(scl);
-      gpio_set_function(scl, GPIO_FUNC_I2C);
-      gpio_pull_up(scl);
+      gpio_init(config.scl);
+      gpio_set_function(config.scl, GPIO_FUNC_I2C);
+      gpio_pull_up(config.scl);
 
-      i2c_init(m_instance->m_i2c, baud);
+      m_instance->m_cardPin = config.cardPin;
+      m_instance->unplugCard();
+
+      i2c_init(m_instance->m_i2c, config.baud);
       i2c_slave_init(m_instance->m_i2c, m_instance->m_address, &(Smartcard::interruptHandler));
     }
   }
@@ -94,6 +98,22 @@ bool Smartcard::isReadingInProgress()
   return m_readingInProgress;
 }
 
+void Smartcard::plugCard()
+{
+  pinMode(m_cardPin, INPUT);
+}
+
+void Smartcard::unplugCard()
+{
+  pinMode(m_cardPin, OUTPUT);
+  digitalWrite(m_cardPin, LOW);
+}
+
+void Smartcard::cyclic()
+{
+  
+}
+
 void Smartcard::interruptHandler(i2c_inst_t *i2c, i2c_slave_event_t event)
 {
 	if(nullptr != m_instance)
@@ -118,9 +138,9 @@ void Smartcard::interruptHandler(i2c_inst_t *i2c, i2c_slave_event_t event)
             m_instance->m_memoryAddress++;
             m_instance->m_memoryAddress &= 0x1FFF;
             // call callback for handling data
-            if(nullptr != m_instance->m_writeCallbackFkt)
+            if(nullptr != m_instance->m_writeCallback)
             {
-              m_instance->m_writeCallbackFkt();
+              m_instance->m_writeCallback();
             }
         }
         break;
@@ -136,9 +156,9 @@ void Smartcard::interruptHandler(i2c_inst_t *i2c, i2c_slave_event_t event)
         if((m_instance->m_lastMemoryAddress <= m_instance->m_memoryAddress) && m_instance->m_readingInProgress)// overflow of address. Indicates complete reading of buffer
         {
           m_instance->m_readingInProgress = false;
-          if(nullptr != m_instance->m_readingFinishedFkt)
+          if(nullptr != m_instance->m_readingFinishedCallback)
           {
-            m_instance->m_readingFinishedFkt();
+            m_instance->m_readingFinishedCallback();
           }
         }
         break;

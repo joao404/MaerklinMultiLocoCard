@@ -22,13 +22,24 @@
 
 class Smartcard
 {
-    
 	public:
+    struct Config
+    {
+      i2c_inst_t *i2c{i2c0};
+      uint32_t baud{400000};
+      uint8_t address{0x50};
+      uint8_t sda{PICO_DEFAULT_I2C_SDA_PIN};
+      uint8_t scl{PICO_DEFAULT_I2C_SCL_PIN};
+      uint8_t cardPin{13};
+      void (*readingFinishedCallback)(void){nullptr};
+      void (*writeCallback)(void){nullptr};      
+    };
+ 
 	  virtual ~Smartcard();
 
-    static Smartcard* createInstance(i2c_inst_t *i2c, uint32_t baud, uint8_t address = 0x50, uint8_t sda = PICO_DEFAULT_I2C_SDA_PIN, uint8_t scl = PICO_DEFAULT_I2C_SCL_PIN, void (*readingFinishedFkt)(void) = nullptr, void (*writeCallbackFkt)(void) = nullptr);
+    static Smartcard* createInstance(Config& config);
   
-	static void interruptHandler(i2c_inst_t *i2c, i2c_slave_event_t event);
+	  static void interruptHandler(i2c_inst_t *i2c, i2c_slave_event_t event);
 
     uint8_t* getMemory();
 
@@ -42,13 +53,18 @@ class Smartcard
     bool isReadingInProgress();
 
     unsigned long getLastReceiveTimeINms();
-
+    
     typedef enum
     {
       WaitingForData,
       WaitingForAddress,
       AddressReceived
     } i2cState;
+
+    void plugCard();
+    void unplugCard();
+
+    void cyclic();
 
 	private:
     // Constructor is private to prevent creation
@@ -60,11 +76,13 @@ class Smartcard
     uint8_t m_address;
     i2cState m_state; 
 
+    uint8_t m_cardPin;
+
     unsigned long m_lastReceiveTimeINms;
     bool m_readingInProgress;
-    void (*m_readingFinishedFkt)(void);
+    void (*m_readingFinishedCallback)(void);
 
-    void (*m_writeCallbackFkt)(void);
+    void (*m_writeCallback)(void);
 
     uint8_t m_memory[8192];
     uint16_t m_memoryAddress;
