@@ -92,7 +92,7 @@ std::vector<String> files;
 // index of file which is currently transmitted
 uint16_t fileIndex {0};
 
-bool writeTriggered{false};
+bool readingBlocked{false};
 bool dataWritten{false};
 
 // access to ssd1306 display
@@ -208,19 +208,18 @@ void setup()
 void loop()
 {
   unsigned long currentTime = millis();
-  if(writeTriggered && dataWritten && ((transmissionTimeout + lococard->getTransmissionTimer()) < currentTime))
+  if(dataWritten && ((transmissionTimeout + lococard->getTransmissionTimer()) < currentTime))
   {
     Serial.println("Write finished");
-    handleLocoWritingFinished();    
+    handleLocoWritingFinished();  
+    dataWritten = false;  
   }
-  if((LOW == digitalRead(BUTTON_PIN)) && !writeTriggered)
+  if((LOW == digitalRead(BUTTON_PIN)) && !readingBlocked)
   {
-    // if button is pressed, switch to write mode
-    writeTriggered = true;
-    dataWritten = false;
+    // if button is pressed, reading is blocked
+    readingBlocked = true;
     memset(lococard->getMemory(), 0, 8192);
-    lococard->setReadingFinishedAddress(8192);
-    Serial.println("Writemode activ");
+    Serial.println("Reading blocked");
     ssd1306->clear();
     ssd1306->drawString(0, 0, "Bereit zum Schreiben");
     ssd1306->display();
@@ -231,54 +230,53 @@ void loop()
 
 void writeCallback()
 {
-  if(writeTriggered)
-  {
-    dataWritten = true;
-  }
+  dataWritten = true;
 }
 
 void readingFinished()
 {
-  prepareNextLoco();
+  if(readingBlocked)
+  {
+    prepareNextLoco();
+  }
 }
 
 void handleLocoWritingFinished()
 {
   String locoName;
-    if(LocoFile::getLocoNameFromBin(lococard->getMemory(), locoName))
-    {
-      Serial.printf("Got loco:%s\n", locoName.c_str());
-      locoName.replace(" ", "_");
-      locoName += ".bin";
-      ssd1306->clear();
-      ssd1306->drawString(0, 0, locoName.c_str());
-      ssd1306->drawString(0, 10, "Schreiben auf SD");
+  if(LocoFile::getLocoNameFromBin(lococard->getMemory(), locoName))
+  {
+    Serial.printf("Got loco:%s\n", locoName.c_str());
+    locoName.replace(" ", "_");
+    locoName += ".bin";
+    ssd1306->clear();
+    ssd1306->drawString(0, 0, locoName.c_str());
+    ssd1306->drawString(0, 10, "Schreiben auf SD");
 
-      bool success {false};
-      if(SD.exists(locoName))
-      {
-        SD.remove(locoName);
-      }
-      File file = SD.open(locoName, FILE_WRITE);
-      if (file)
-      {
-        if(8192 == file.write(lococard->getMemory(), 8192))
-        {
-          success = true;
-        }
-        file.close();
-      }
-      ssd1306->drawString(0, 20, success ? "erfolgreich" : "fehlgeschlagen");
-      ssd1306->display();
-    }
-    else
+    bool success {false};
+    if(SD.exists(locoName))
     {
+      SD.remove(locoName);
+    }
+    File file = SD.open(locoName, FILE_WRITE);
+    if (file)
+    {
+      if(8192 == file.write(lococard->getMemory(), 8192))
+      {
+        success = true;
+      }
+      file.close();
+    }
+    ssd1306->drawString(0, 20, success ? "erfolgreich" : "fehlgeschlagen");
+    ssd1306->display();
+  }
+  else
+  {
     ssd1306->clear();
     ssd1306->drawString(0, 0, "Kein Lokname");
     ssd1306->display();
-    }
-    writeTriggered = false;
-    dataWritten = false;
+  }  
+  memset(lococard->getMemory(), 0, 8192);  
 }
 
 void prepareNextLoco()
