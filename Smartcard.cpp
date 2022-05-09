@@ -22,9 +22,10 @@ Smartcard* Smartcard::m_instance {nullptr};
 Smartcard::Smartcard()
   :m_i2c(nullptr),
    m_address(0),
-   m_state(), 
-   m_lastReceiveTimeINms(0),
-   m_readingInProgress(false),
+   m_i2cState(I2cState::WaitingForData), 
+   m_transmissionState(TransmissionState::Idle),
+   m_transmissionTimer(0),
+   m_readingActiv(false),
    m_readingFinishedCallback(nullptr),
    m_writeCallback(nullptr),
    m_memoryAddress(0)
@@ -48,6 +49,9 @@ Smartcard* Smartcard::createInstance(Config& config)
 	    m_instance->m_i2c = config.i2c;
 	    m_instance->m_address = config.address;
 	    m_instance->m_memoryAddress = 0;
+      m_instance->m_transmissionTimeoutINms = config.transmissionTimeoutINms;
+      m_instance->m_delayEndOfTransmissionINms = config.delayEndOfTransmissionINms;
+      m_instance->m_delayUnplugCardINms = config.delayUnplugCardINms;
       m_instance->m_readingFinishedCallback = config.readingFinishedCallback;
       m_instance->m_writeCallback = config.writeCallback;
       gpio_init(config.sda);
@@ -83,19 +87,10 @@ void Smartcard::setReadingFinishedAddress(uint16_t address)
   m_lastMemoryAddress = address;
 }
 
-unsigned long Smartcard::getLastReceiveTimeINms()
+void Smartcard::triggerReading()
 {
-  return m_lastReceiveTimeINms;
-}
-
-void Smartcard::setReadingInProgress(bool isInProgress)
-{
-  m_readingInProgress = isInProgress; 
-}
-
-bool Smartcard::isReadingInProgress()
-{
-  return m_readingInProgress;
+  m_readingActiv = true; 
+  plugCard();
 }
 
 void Smartcard::plugCard()
@@ -111,7 +106,43 @@ void Smartcard::unplugCard()
 
 void Smartcard::cyclic()
 {
-  
+  unsigned long currentTime = millis();
+  switch(m_instance->m_transmissionState)
+  {
+    case TransmissionState::TransmittingData:
+      if((m_instance->m_transmissionTimer + m_instance->m_transmissionTimeoutINms) < currentTime) // transmission timeout
+      {
+        Serial.printf("Transmissiontimeout with address:%x\n", m_instance->getMemoryAddress());
+        m_instance->m_transmissionState = TransmissionState::DelayOfTransmissionEnd;
+        m_instance->m_transmissionTimer = currentTime;
+      }
+    break;
+    case TransmissionState::DelayOfTransmissionEnd:
+      if((m_instance->m_transmissionTimer + m_instance->m_delayEndOfTransmissionINms) < currentTime)//timeout for to late transmission bytes
+      {
+        m_instance->m_transmissionState = TransmissionState::DelayOfCardUnPlugDetected;
+        m_instance->unplugCard();
+        m_instance->m_transmissionTimer = currentTime; 
+      }
+    break;
+    case TransmissionState::DelayOfCardUnPlugDetected:
+      if((m_instance->m_transmissionTimer + m_instance->m_delayUnplugCardINms) < currentTime) // transmission timeout
+      {
+        m_instance->m_transmissionState = TransmissionState::Idle;
+        m_readingActiv = false;
+        if(nullptr != m_instance->m_readingFinishedCallback)
+        {
+          m_instance->m_readingFinishedCallback();
+        }
+      }
+    break;
+    case TransmissionState::Idle:
+    break;
+    default:
+      Serial.println("Undefined Transmission state");
+      m_transmissionState = TransmissionState::Idle;
+    break;
+  }
 }
 
 void Smartcard::interruptHandler(i2c_inst_t *i2c, i2c_slave_event_t event)
@@ -123,15 +154,15 @@ void Smartcard::interruptHandler(i2c_inst_t *i2c, i2c_slave_event_t event)
       switch (event) 
       {
       case I2C_SLAVE_RECEIVE: // master has written some data
-        if (i2cState::WaitingForData == m_instance->m_state) {
+        if (I2cState::WaitingForData == m_instance->m_i2cState) {
             // writes always start with the memory address
             m_instance->m_memoryAddress = i2c_read_byte(i2c) << 8;
-            m_instance->m_state = i2cState::WaitingForAddress;
-        } else if (i2cState::WaitingForAddress == m_instance->m_state) {
+            m_instance->m_i2cState = I2cState::WaitingForAddress;
+        } else if (I2cState::WaitingForAddress == m_instance->m_i2cState) {
             // writes always start with the memory address
             m_instance->m_memoryAddress += i2c_read_byte(i2c);
             m_instance->m_memoryAddress &= 0x1FFF;
-            m_instance->m_state = i2cState::AddressReceived;
+            m_instance->m_i2cState = I2cState::AddressReceived;
         } else {
             // save into memory
             m_instance->m_memory[m_instance->m_memoryAddress] = i2c_read_byte(i2c);
@@ -149,23 +180,22 @@ void Smartcard::interruptHandler(i2c_inst_t *i2c, i2c_slave_event_t event)
         i2c_write_byte(i2c, m_instance->m_memory[m_instance->m_memoryAddress]);
         m_instance->m_memoryAddress++;
         m_instance->m_memoryAddress &= 0x1FFF;
-        m_instance->m_readingInProgress = true;
+        if((m_instance->m_transmissionState == TransmissionState::Idle) && m_instance->m_readingActiv)
+        {
+         m_instance->m_transmissionState = TransmissionState::TransmittingData;
+        }
         break;
       case I2C_SLAVE_FINISH: // master has signalled Stop / Restart
-        m_instance->m_state = i2cState::WaitingForData;
-        if((m_instance->m_lastMemoryAddress <= m_instance->m_memoryAddress) && m_instance->m_readingInProgress)// overflow of address. Indicates complete reading of buffer
+        m_instance->m_i2cState = I2cState::WaitingForData;
+        if((m_instance->m_lastMemoryAddress <= m_instance->m_memoryAddress) && m_instance->m_readingActiv)// overflow of address. Indicates complete reading of buffer
         {
-          m_instance->m_readingInProgress = false;
-          if(nullptr != m_instance->m_readingFinishedCallback)
-          {
-            m_instance->m_readingFinishedCallback();
-          }
+          m_instance->m_transmissionState = TransmissionState::DelayOfTransmissionEnd;
         }
         break;
       default:
         break;
       }
-      m_instance->m_lastReceiveTimeINms = millis();
+      m_instance->m_transmissionTimer = millis();
     }
   }
 }

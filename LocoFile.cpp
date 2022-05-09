@@ -86,6 +86,8 @@ uint16_t LocoFile::getLastAddressOfLocoData(uint8_t* data)
 uint16_t LocoFile::createBinFromCS2(const uint8_t* cs2Data, uint8_t* binData)
 {
   uint16_t index = 0;
+
+  
   
   return index;
 }

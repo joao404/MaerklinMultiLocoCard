@@ -31,8 +31,11 @@ class Smartcard
       uint8_t sda{PICO_DEFAULT_I2C_SDA_PIN};
       uint8_t scl{PICO_DEFAULT_I2C_SCL_PIN};
       uint8_t cardPin{13};
+      unsigned long transmissionTimeoutINms{700};
+      unsigned long delayEndOfTransmissionINms{50};
+      unsigned long delayUnplugCardINms{100}; 
       void (*readingFinishedCallback)(void){nullptr};
-      void (*writeCallback)(void){nullptr};      
+      void (*writeCallback)(void){nullptr};     
     };
  
 	  virtual ~Smartcard();
@@ -48,18 +51,24 @@ class Smartcard
     // set address which finishes reading if it is reached
     void setReadingFinishedAddress(uint16_t address);
 
-    void setReadingInProgress(bool isInProgress);
+    void triggerReading();
 
-    bool isReadingInProgress();
-
-    unsigned long getLastReceiveTimeINms();
+    unsigned long getTransmissionTimer() { return m_transmissionTimer;}
     
     typedef enum
     {
       WaitingForData,
       WaitingForAddress,
       AddressReceived
-    } i2cState;
+    } I2cState;
+
+    typedef enum
+    {
+      Idle,
+      TransmittingData,
+      DelayOfTransmissionEnd,
+      DelayOfCardUnPlugDetected            
+    } TransmissionState;
 
     void plugCard();
     void unplugCard();
@@ -71,15 +80,32 @@ class Smartcard
     Smartcard();
     
     static Smartcard* m_instance;
-    
-    i2c_inst_t* m_i2c;
-    uint8_t m_address;
-    i2cState m_state; 
 
+    // i2c interface
+    i2c_inst_t* m_i2c;
+
+    // slave adress of 
+    uint8_t m_address;
+
+    // internal state for getting write/read adress
+    I2cState m_i2cState; 
+
+    // state of transmission
+    TransmissionState m_transmissionState;
+
+    
     uint8_t m_cardPin;
 
-    unsigned long m_lastReceiveTimeINms;
-    bool m_readingInProgress;
+    unsigned long m_transmissionTimer;
+
+    unsigned long m_transmissionTimeoutINms;
+
+    unsigned long m_delayEndOfTransmissionINms;
+
+    unsigned long m_delayUnplugCardINms;
+    
+    bool m_readingActiv;
+
     void (*m_readingFinishedCallback)(void);
 
     void (*m_writeCallback)(void);

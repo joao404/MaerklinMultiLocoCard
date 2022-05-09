@@ -18,8 +18,6 @@
  // - save .bin file to card in case that complete card was written. find with std::find search, if loco is already existing and overwrite file in that case
  // - Menu which checks for folders on card. It can be written Everything, a folder or a single loco 
 
-#include <FreeRTOS.h>
-
 // Smartcard
 #include "Smartcard.h"
 
@@ -38,9 +36,11 @@
 // functions for .bin and .cs2 files
 #include "LocoFile.h"
 
+void readingFinished();
 void writeCallback();
 bool writeDataToCardAndPlug(String& fileName);
 void getLocosFromSD(File dir);
+void prepareNextLoco();
 
 
 // Smartcard
@@ -50,7 +50,7 @@ const uint8_t I2C_SLAVE_SCL_PIN{29};
 const uint32_t I2C_BAUDRATE{400000};
 
 const int8_t cardPin{13};
-unsigned long transmissionTimeout{500};
+unsigned long transmissionTimeout{700};
 
 // Display
 const uint8_t I2C_DISPLAY_SDA_PIN{6};
@@ -97,8 +97,6 @@ bool dataWritten{false};
 
 // access to ssd1306 display
 GFX* ssd1306{nullptr};
-
-bool readingTriggered{false};
 
 void setup()
 {
@@ -150,6 +148,10 @@ void setup()
   {
     Serial.println("initialization failed!");
     // use internal memory
+    ssd1306->clear();
+    ssd1306->drawString(0, 0, "NO SD Card plugged");
+    ssd1306->display();
+    while(1);
   }
   else
   {
@@ -182,6 +184,9 @@ void setup()
   smartCardConfig.sda = I2C_SLAVE_SDA_PIN;
   smartCardConfig.scl = I2C_SLAVE_SCL_PIN;
   smartCardConfig.cardPin = cardPin;
+  smartCardConfig.transmissionTimeoutINms = 500;
+  smartCardConfig.delayEndOfTransmissionINms = 50;
+  smartCardConfig.delayUnplugCardINms = 100;
   smartCardConfig.readingFinishedCallback = &readingFinished;
   smartCardConfig.writeCallback = &writeCallback;
   lococard = Smartcard::createInstance(smartCardConfig);
@@ -203,18 +208,7 @@ void setup()
 void loop()
 {
   unsigned long currentTime = millis();
-  if(readingTriggered && lococard->isReadingInProgress() && ((transmissionTimeout + lococard->getLastReceiveTimeINms()) < currentTime))
-  {
-    // Transmission ongoing and timeout reached => increase error counter
-    Serial.printf("Transmissiontimeout with address:%x\n", lococard->getMemoryAddress());
-    lococard->setReadingInProgress(false); 
-    readingTriggered = false;
-    sleep_ms(50);
-    lococard->unplugCard();
-    sleep_ms(100);
-    prepareNextLoco();
-  }
-  if(writeTriggered && dataWritten && ((transmissionTimeout + lococard->getLastReceiveTimeINms()) < currentTime))
+  if(writeTriggered && dataWritten && ((transmissionTimeout + lococard->getTransmissionTimer()) < currentTime))
   {
     Serial.println("Write finished");
     handleLocoWritingFinished();    
@@ -224,7 +218,6 @@ void loop()
     // if button is pressed, switch to write mode
     writeTriggered = true;
     dataWritten = false;
-    readingTriggered = false;
     memset(lococard->getMemory(), 0, 8192);
     lococard->setReadingFinishedAddress(8192);
     Serial.println("Writemode activ");
@@ -246,14 +239,7 @@ void writeCallback()
 
 void readingFinished()
 {
-  if(readingTriggered)
-  {
-    Serial.println("Reading finished");
-    readingTriggered = false;
-    lococard->unplugCard(); 
-    sleep_ms(100);
-    prepareNextLoco();
-  }
+  prepareNextLoco();
 }
 
 void handleLocoWritingFinished()
@@ -303,7 +289,6 @@ void prepareNextLoco()
    {
      if(writeDataToCardAndPlug(files.at(fileIndex++)))
      {
-      readingTriggered = true;
        break;
      }
     }
@@ -316,10 +301,6 @@ void prepareNextLoco()
       break;
     }
   }
-}
-
-inline void put_pixel(uint32_t pixel_grb) {
-    pio_sm_put_blocking(pio0, 0, pixel_grb << 8u);
 }
 
 bool writeDataToCardAndPlug(String& fileName)
@@ -346,6 +327,9 @@ bool writeDataToCardAndPlug(String& fileName)
                 uint16_t lastReadingAddress = LocoFile::getLastAddressOfLocoData(lococard->getMemory());
                 Serial.printf("Last reading address:%x\n", lastReadingAddress);
                 lococard->setReadingFinishedAddress(lastReadingAddress);
+                lococard->getMemory()[lastReadingAddress + 1] = 0;
+                lococard->getMemory()[lastReadingAddress + 2] = 0;
+                lococard->getMemory()[lastReadingAddress + 3] = 0;
 
                 // write current loco to display
                 ssd1306->clear();
@@ -380,7 +364,7 @@ bool writeDataToCardAndPlug(String& fileName)
                 }
                 ssd1306->display();
                 
-                lococard->plugCard();
+                lococard->triggerReading();
                 result = true;
               }
               else
@@ -400,7 +384,7 @@ bool writeDataToCardAndPlug(String& fileName)
               {
                 Serial.printf("Last reading address:%x\n", lastReadingAddress);
                 lococard->setReadingFinishedAddress(lastReadingAddress);
-                lococard->plugCard();
+                lococard->triggerReading();
                 result = true;
               }
             }
@@ -440,4 +424,8 @@ void getLocosFromSD(File dir)
     }
     entry.close();
   }
+}
+
+inline void put_pixel(uint32_t pixel_grb) {
+    pio_sm_put_blocking(pio0, 0, pixel_grb << 8u);
 }
