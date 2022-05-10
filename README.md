@@ -5,11 +5,11 @@ See https://github.com/GBert/railroad/tree/master/ms2-card for more details.
 Forum discussion can be found at https://www.stummiforum.de/t202512f7-Lokkarten-Emulator-Interesse.html.
 
 ## Function
-Copy binary files to SD card of emulator. Display should show a one and the name of the first binary file. Insert card into MS2. 
-Number should increase and show file name of current loco, that will be updated. For MS HW2.0 card must be manually plugged and unplugged.
-In case of HW2.1 reading should work automatic. A bug could occur, if two locos with the same address are read.
+Copy binary files to SD card of emulator. Plug emulator into Mobile Station. You can start with writing locos one by one with Mobile Station to emulator.
+It can happen, that first writing is not successful. Investigation is ongoing.
 
-To use write mode, press button on emulator before plugging the card. MS will notify read error. Afterwards loco can be chosen and written. To write additional locos, card does not have to be removed.
+If you want to read locos from SD and write them to Mobile Station, press button on emulator. In case of HW2.1, transmission of locos should work automaticaly.
+For MS HW2.0 card must be manually plugged and unplugged.
 
 ## Precondition
 - Install rp2040 delevopment framework as described at https://github.com/earlephilhower/arduino-pico. I currently recommend to use Arduino IDE.

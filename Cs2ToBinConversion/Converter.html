@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>cs2 to bin converter</title>
+</head>
+<body>
+    <a href="" id="a">click here to download your file</a>
+	<button onclick="download('file text', 'myfilename.json', 'text/json')">Create file</button>
+    <script type="text/javascript">
+        function download(text, name, type) {
+			var a = document.getElementById("a");
+			var file = new Blob([text], {type: type});
+			a.href = URL.createObjectURL(file);
+			a.download = name;
+		}
+    </script>
+</body>
+</html>
