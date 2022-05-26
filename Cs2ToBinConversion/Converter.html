@@ -1,18 +1,103 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>cs2 to bin converter</title>
+    <style>
+        table, th, td {
+          border: 1px solid black;
+        }
+    </style>
 </head>
 <body>
-    <a href="" id="a">click here to download your file</a>
-	<button onclick="download('file text', 'myfilename.json', 'text/json')">Create file</button>
+    <h1>CS2 to BIN Conversion</h1>
+    <input type="file" name="cs2InputFile" id="cs2InputFile">
+    <br>
+    <div class="locoTableContainer">
+        <table>
+            <thead>
+                <th>Name</th>
+                <th>Adresse</th>
+                <th>Format</th>
+                <th>File</th>
+            </thead>
+            <tbody id="locoTable">
+            </tbody>
+        </table>
+    </div>
+   
+    <pre id="debugOutput"></pre>
+
     <script type="text/javascript">
-        function download(text, name, type) {
-			var a = document.getElementById("a");
-			var file = new Blob([text], {type: type});
-			a.href = URL.createObjectURL(file);
-			a.download = name;
-		}
+
+        var lokomotiveCs2 = 0;
+
+		document.getElementById('cs2InputFile')
+            .addEventListener('change', function() {
+              
+            var fr=new FileReader();
+            fr.onload=function(){
+                locoTable.innerHTML = "";
+                createLocoTable(fr.result);
+            }
+            fr.readAsText(this.files[0]);
+        })
+
+        function createLocoTable(lokomotiveCs2)
+        {
+            let locoArray = lokomotiveCs2.split('.name=');
+            //let index = locoArray[1].search(/\n/);
+            //document.getElementById('debugOutput').textContent=locoArray[1].substr(0, index);
+
+            //remove first element of Array
+            locoArray.shift();
+            locoArray.forEach((loco)=>{
+                analyzeLoco(loco);
+            });
+        }
+
+        function analyzeLoco(data)
+        {
+            const name = data.substring(0, data.indexOf('\n') - 1);
+
+            const adressIndex = data.indexOf('.adresse=') + 9;
+            const adress=data.substring(adressIndex, data.indexOf('\n', adressIndex));
+
+            const protocolIndex = data.indexOf('.typ=') + 5;
+            const protocol=data.substring(protocolIndex, data.indexOf('\n', protocolIndex));
+
+            addLocoToTable(name, adress, protocol, data);
+        }
+
+        function addLocoToTable(name, adr, protocol, binFile)
+        {
+            const locoLine = document.createElement("tr");
+            const locoName = document.createElement("th");
+            locoName.innerText = name;
+            locoLine.appendChild(locoName);
+
+            const locoAdr = document.createElement("th");
+            locoAdr.innerText = adr;
+            locoLine.appendChild(locoAdr);
+
+            const locoProtocol = document.createElement("th");
+            locoProtocol.innerText = protocol;
+            locoLine.appendChild(locoProtocol);
+
+            const locoFile = document.createElement("th");
+            const locoRef = document.createElement("a");
+            var file = new Blob([binFile], {'text/bin': 'text/bin'});
+			locoRef.href = URL.createObjectURL(file);
+            const fileName = name.replace(' ', '_');
+			locoRef.download = `${fileName}.bin`;
+            locoRef.innerText = `${fileName}.bin`;
+            locoFile.appendChild(locoRef);
+            locoLine.appendChild(locoFile);
+
+            locoTable.appendChild(locoLine);
+        }
     </script>
 </body>
 </html>
