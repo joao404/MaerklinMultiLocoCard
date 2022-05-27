@@ -60,15 +60,201 @@
 
         function analyzeLoco(data)
         {
+            // get buffer for data
+            let binData = new Uint8Array(8192);
+
+            // extract name of loco
             const name = data.substring(0, data.indexOf('\n') - 1);
 
-            const adressIndex = data.indexOf('.adresse=') + 9;
-            const adress=data.substring(adressIndex, data.indexOf('\n', adressIndex));
+            // get adress
+            const adress = getNumber(data, '.adresse=');
 
-            const protocolIndex = data.indexOf('.typ=') + 5;
-            const protocol=data.substring(protocolIndex, data.indexOf('\n', protocolIndex));
+            // get protocol
+            const protocol = getString(data, '.typ=');
 
-            addLocoToTable(name, adress, protocol, data);
+            let binIndex = 0;
+            // in order to detect the correct protocol, i have to get number of functions first
+            switch (protocol) {
+                case "mm":
+                    binData[binIndex++] = 2;
+                    binData[binIndex++] = 117;
+                    binData[binIndex++] = 0;
+                break;
+
+                case "mm2_prg":
+                    binData[binIndex++] = 2;
+                    binData[binIndex++] = 231;
+                    binData[binIndex++] = 0;
+                break;
+
+                case "mfx":
+                    binData[binIndex++] = 2;
+                    binData[binIndex++] = 229;
+                    binData[binIndex++] = 0;
+                break;
+
+                case "dcc":
+                    binData[binIndex++] = 2;
+                    binData[binIndex++] = 197;
+                    binData[binIndex++] = 0;
+                break;
+   
+                default: ;
+            }
+
+            // get uid
+            const uid = getNumber(data, '.uid=');
+
+            // add uid to bin
+            binData[binIndex++] = 1;
+            binData[binIndex++] = 4;
+            binData[binIndex++] = uid;
+            binData[binIndex++] = uid/256;
+            binData[binIndex++] = uid/65536;
+            binData[binIndex++] = uid/16777216;
+
+            // add adress to bin
+            binData[binIndex++] = 2;
+            binData[binIndex++] = 2;
+            binData[binIndex++] = adress;
+            binData[binIndex++] = adress/256;
+
+            // get acceleration delay
+            const av = getNumber(data, '.av=');
+            // add av to bin
+            binData[binIndex++] = 3;
+            binData[binIndex++] = 1;
+            binData[binIndex++] = av;
+
+            // get slow down delay
+            const bv = getNumber(data, '.bv=');
+            // add bv to bin
+            binData[binIndex++] = 4;
+            binData[binIndex++] = 1;
+            binData[binIndex++] = bv;
+
+            // get vmin
+            const vmin = getNumber(data, '.vmin=');
+            // add vmin to bin
+            binData[binIndex++] = 5;
+            binData[binIndex++] = 1;
+            binData[binIndex++] = vmin;
+
+            // get vmax
+            const vmax = getNumber(data, '.vmax=');
+            // add vmax to bin
+            binData[binIndex++] = 6;
+            binData[binIndex++] = 1;
+            binData[binIndex++] = vmax;
+
+            // TODO:
+            //missing tacho
+
+            // get volume
+            const volume = getNumber(data, '.volume=');
+            // add volume to bin
+            binData[binIndex++] = 8;
+            binData[binIndex++] = 1;
+            binData[binIndex++] = volume;
+
+            let functions = data.substring(data.indexOf('.funktionen')+12).split('.funktionen');
+
+            binData[binIndex++] = 9;
+            binData[binIndex++] = functions.length * 10;
+            functions.forEach((locoFunction)=>{
+                //document.getElementById('debugOutput').textContent=locoFunction;
+                binData[binIndex++] = getNumber(locoFunction, '..typ=');
+                binData[binIndex++] = getNumber(locoFunction, '..dauer=');
+                binIndex+=8;
+            });
+
+            // TODO:
+            //missing loco functions 2
+
+            // get mfx uid
+            const mfxuid = getNumber(data, '.mfxuid=');
+            // add mfx uid to bin
+            binData[binIndex++] = 10;
+            binData[binIndex++] = 4;
+            binData[binIndex++] = mfxuid;
+            binData[binIndex++] = mfxuid/256;
+            binData[binIndex++] = mfxuid/65536;
+            binData[binIndex++] = mfxuid/16777216;
+
+            const symbol = getNumber(data, '.symbol=');
+            // add symbol to bin as CS2
+            binData[binIndex++] = 14;
+            binData[binIndex++] = 1;
+            binData[binIndex++] = symbol;
+
+            // add symbol to bin as MS2
+            binData[binIndex++] = 15;
+            binData[binIndex++] = 1;
+            binData[binIndex++] = symbol;
+
+            let indexMxf = data.indexOf('.mfxAdr');
+            if(indexMxf >= 0)
+            {
+                // add mfx block to bin
+                binData[binIndex++] = 12;
+                binData[binIndex++] = 16;
+                indexMxf += '.mfxAdr'.length;
+                const mfxStruct = data.substring(indexMxf);
+                const target = getNumber(mfxStruct, '..target=');
+                binData[binIndex++] = target;
+                binData[binIndex++] = target/256;
+                const mfxName = getNumber(mfxStruct, '..name=');
+                binData[binIndex++] = mfxName;
+                binData[binIndex++] = mfxName/256;
+                const speedtable = getNumber(mfxStruct, '..speedtable=');
+                binData[binIndex++] = speedtable;
+                binData[binIndex++] = speedtable/256;
+                const addr = getNumber(mfxStruct, '..addr=');
+                binData[binIndex++] = addr;
+                binData[binIndex++] = addr/256;
+                const xcel = getNumber(mfxStruct, '..xcel=');
+                binData[binIndex++] = xcel;
+                binData[binIndex++] = xcel/256;
+                const volume = getNumber(mfxStruct, '..volume=');
+                binData[binIndex++] = volume;
+                binData[binIndex++] = volume/256;
+                const numfunc = getNumber(mfxStruct, '..numfunc=');
+                binData[binIndex++] = numfunc;
+                binData[binIndex++] = numfunc/256;
+                const func = getNumber(mfxStruct, '..func=');
+                binData[binIndex++] = func;
+                binData[binIndex++] = func/256;
+            }
+
+            // add name and protocol string to bin
+            binData[binIndex++] = 0;
+            binData[binIndex++] = 3;
+            binData[binIndex++] = name.length + protocol.length + 5;
+            binData[binIndex++] = (name.length + protocol.length + 5) / 256;
+            binData[binIndex++] = 30;
+            binData[binIndex++] = name.length;
+            for (let i = 0; i < name.length; i++) {
+                binData[binIndex++] = name.charCodeAt(i);
+            } 
+            binData[binIndex++] = 31;
+            binData[binIndex++] = protocol.length;
+            for (let i = 0; i < protocol.length; i++) {
+                binData[binIndex++] = protocol.charCodeAt(i);
+            } 
+
+            addLocoToTable(name, adress, protocol, binData);
+        }
+
+        function getNumber(data, string)
+        {
+            const index = data.indexOf(string) + string.length;
+            return Number(data.substring(index, data.indexOf('\n', index) - 1));
+        }
+
+        function getString(data, string)
+        {
+            const index = data.indexOf(string) + string.length;
+            return data.substring(index, data.indexOf('\n', index) - 1);
         }
 
         function addLocoToTable(name, adr, protocol, binFile)
