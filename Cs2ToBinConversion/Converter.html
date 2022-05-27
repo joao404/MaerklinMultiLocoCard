@@ -217,9 +217,20 @@
                 const target = getNumber(mfxStruct, '..target=');
                 binData[binIndex++] = target;
                 binData[binIndex++] = target/256;
-                const mfxName = getNumber(mfxStruct, '..name=');
-                binData[binIndex++] = mfxName;
-                binData[binIndex++] = mfxName/256;
+                const nameIndex = data.indexOf('..name=');
+                if(nameIndex >= 0)
+                {
+                    nameIndex+='..name='.length;
+                    const mfxName = Number(data.substring(nameIndex, data.indexOf('\n', nameIndex) - 1));
+                    binData[binIndex++] = mfxName;
+                    binData[binIndex++] = mfxName/256;
+                }
+                else
+                {
+                    const mfxName = getNumber(mfxStruct, '..name');
+                    binData[binIndex++] = mfxName;
+                    binData[binIndex++] = mfxName/256;
+                }                
                 const speedtable = getNumber(mfxStruct, '..speedtable=');
                 binData[binIndex++] = speedtable;
                 binData[binIndex++] = speedtable/256;
