@@ -161,8 +161,15 @@
             binData[binIndex++] = 1;
             binData[binIndex++] = vmax;
 
-            // TODO:
-            //missing tacho
+            // add tacho to bin
+            const tacho = getNumber(data, '.tachomax=');
+            if(!Number.isNaN(tacho))
+            {
+                binData[binIndex++] = 7;
+                binData[binIndex++] = 2;
+                binData[binIndex++] = tacho;
+                binData[binIndex++] = tacho/256;
+            }
 
             // get volume
             const volume = getNumber(data, '.volume=');
