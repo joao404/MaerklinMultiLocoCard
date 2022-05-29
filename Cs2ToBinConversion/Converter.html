@@ -61,6 +61,7 @@
 
         function createLocoTable(lokomotiveCs2)
         {
+            lokomotiveCs2 = lokomotiveCs2.replace(/(\r\n)/gm,"\n");
             let locoArray = lokomotiveCs2.split(' .name=');
             //let index = locoArray[1].search(/\n/);
             //document.getElementById('debugOutput').textContent=locoArray[1].substr(0, index);
