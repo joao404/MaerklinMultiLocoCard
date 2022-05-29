@@ -61,7 +61,7 @@
 
         function createLocoTable(lokomotiveCs2)
         {
-            let locoArray = lokomotiveCs2.split('.name=');
+            let locoArray = lokomotiveCs2.split(' .name=');
             //let index = locoArray[1].search(/\n/);
             //document.getElementById('debugOutput').textContent=locoArray[1].substr(0, index);
 
@@ -78,7 +78,7 @@
             let binData = new Uint8Array(8192);
 
             // extract name of loco
-            const name = data.substring(0, data.indexOf('\n') - 1);
+            const name = data.substring(0, data.indexOf('\n'));
 
             // get adress
             const adress = getNumber(data, '.adresse=');
@@ -113,7 +113,10 @@
                     binData[binIndex++] = 0;
                 break;
    
-                default: ;
+                default:
+                    binData[binIndex++] = 2;
+                    binData[binIndex++] = 231;
+                    binData[binIndex++] = 0;
             }
 
             // get uid
@@ -178,19 +181,54 @@
             binData[binIndex++] = 1;
             binData[binIndex++] = volume;
 
-            let functions = data.substring(data.indexOf('.funktionen')+12).split('.funktionen');
-
+            // add functions to bin
+            let functions = data.substring(data.indexOf('.funktionen\n')+13).split('.funktionen\n');
             binData[binIndex++] = 9;
             binData[binIndex++] = functions.length * 10;
+            //document.getElementById('debugOutput').textContent=functions.length;
             functions.forEach((locoFunction)=>{
-                //document.getElementById('debugOutput').textContent=locoFunction;
                 binData[binIndex++] = getNumber(locoFunction, '..typ=');
-                binData[binIndex++] = getNumber(locoFunction, '..dauer=');
+                const dauer = getNumber(locoFunction, '..dauer=');
+                if(!Number.isNaN(dauer))
+                {
+                    binData[binIndex++] = dauer;
+                }
+                else
+                {
+                    binIndex++;
+                }
                 binIndex+=8;
             });
 
-            // TODO:
-            //missing loco functions 2
+            // add functions_2 to bin
+            let functions2 = data.substring(data.indexOf('.funktionen_2\n')+15).split('.funktionen_2\n');
+            binData[binIndex++] = 13;
+            binData[binIndex++] = 32;
+            let numberOfFunctions = 32;
+            //document.getElementById('debugOutput').textContent=functions.length;
+            functions2.forEach((locoFunction)=>{
+                const typ2 = getNumber(locoFunction, '..typ=');
+                if(!Number.isNaN(typ2))
+                {
+                    binData[binIndex++] = typ2;
+                }
+                else
+                {
+                    binData[binIndex++] = 0;
+                }
+                const dauer2 = getNumber(locoFunction, '..dauer=');
+                if(!Number.isNaN(dauer2))
+                {
+                    binData[binIndex++] = dauer2;
+                }
+                else
+                {
+                    binData[binIndex++] = 0;
+                }
+                numberOfFunctions-=2;
+            });
+            binIndex += numberOfFunctions;
+            //TODO: prevent error in case that there are more or less funktionen_2 than 16
 
             // get mfx uid
             const mfxuid = getNumber(data, '.mfxuid=');
@@ -279,14 +317,30 @@
 
         function getNumber(data, string)
         {
-            const index = data.indexOf(string) + string.length;
-            return Number(data.substring(index, data.indexOf('\n', index) - 1));
+            let index = data.indexOf(string) 
+            if(index >= 0)
+            {
+                index += string.length;
+                return Number(data.substring(index, data.indexOf('\n', index)));
+            }
+            else
+            {
+                return NaN;
+            }
         }
 
         function getString(data, string)
         {
-            const index = data.indexOf(string) + string.length;
-            return data.substring(index, data.indexOf('\n', index) - 1);
+            let index = data.indexOf(string);
+            if(index>=0)
+            {
+                index += string.length;
+                return data.substring(index, data.indexOf('\n', index));
+            }
+            else
+            {
+                return "";
+            }
         }
 
         function addLocoToTable(name, adr, protocol, binFile)
